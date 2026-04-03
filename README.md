@@ -73,7 +73,17 @@ dnf install python3-xlib python3-dbus python3-gobject
 apt install python3-xlib python3-dbus python3-gi
 ```
 
-**NixOS:** See [NixOS Module](#nixos-module) below.
+**NixOS (imperative):**
+```bash
+nix-shell -p python3Packages.xlib python3Packages.dbus-python python3Packages.pygobject3
+```
+
+Or add to your system/home-manager Python environment:
+```nix
+(python3.withPackages (ps: [ ps.xlib ps.dbus-python ps.pygobject3 ]))
+```
+
+For a fully declarative setup, see [NixOS Module](#nixos-module) below.
 
 ## Installation
 
@@ -144,7 +154,9 @@ windowrule=isnoanimation:1,appid:wine-sni-bridge
 windowrule=noblur:1,appid:wine-sni-bridge
 ```
 
-### Other wlroots compositors
+### Other wlroots compositors (River, Labwc, etc.)
+
+> **Note**: Hyprland and Sway configs above are based on their documented window rule syntax but have not been tested by the author. The dwl/MangoWC config is battle-tested daily. If you find issues or have working configs for other compositors, please open a PR.
 
 The intent of the rules is:
 1. **Float** the window (don't tile it)
@@ -213,7 +225,7 @@ The module automatically creates the systemd service with the correct Python env
 - This is usually resolved by icon caching. If persistent, restart the bridge: `systemctl --user restart wine-sni-bridge`
 
 **Black square on first minimize:**
-- Known Wine behavior. The icon appears correctly after the first dock/undock cycle
+- Rare. Icon caching prevents this in most cases. If it happens, it resolves after the first dock/undock cycle
 
 **Bridge visible in compositor overview/expose:**
 - The window sets `_NET_WM_WINDOW_TYPE_UTILITY` which most compositors exclude from overview
@@ -226,7 +238,7 @@ The module automatically creates the systemd service with the correct Python env
 
 ## Known Limitations
 
-- First minimize of a Wine app may show a brief black square (icon not yet painted by Wine)
+- Icon caching eliminates the black square issue in practice, but a brief flash is theoretically possible on first-ever minimize after bridge start
 - Some compositors may show the utility window in overview/expose modes
 - Only supports `_NET_SYSTEM_TRAY_S0` (primary screen)
 - Icon extraction uses polling (50ms X11 event loop) - negligible CPU impact
@@ -237,7 +249,7 @@ The module automatically creates the systemd service with the correct Python env
 | | xembedsniproxy | wine-sni-bridge |
 |---|---|---|
 | Focus stealing | Yes (unmanaged X11 windows) | No (managed utility window) |
-| Black square artifacts | Yes | Minimal (first minimize only) |
+| Black square artifacts | Yes | No (icon caching) |
 | Multi-app support | Yes | Yes (separate DBus connections) |
 | Icon caching | No | Yes (per WM_CLASS) |
 | Click forwarding | Yes | Yes |
