@@ -2,6 +2,10 @@
 
 A lightweight daemon that bridges Wine/Windows system tray icons to Wayland's StatusNotifierItem protocol. Drop-in replacement for `xembedsniproxy` that doesn't steal keyboard focus.
 
+## Demo
+
+https://github.com/user-attachments/assets/07047942-71aa-4400-9ce4-cce2f4ab92b6
+
 ## The Problem
 
 On Wayland, Wine applications that use the system tray (minimize-to-tray games, background apps) rely on the X11 XEmbed protocol. The standard solution, `xembedsniproxy` from KDE Plasma, converts these to the modern StatusNotifierItem (SNI) protocol for status bars like Waybar.
