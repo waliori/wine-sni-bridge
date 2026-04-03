@@ -1,0 +1,11 @@
+[Unit]
+Description=Wine SNI Bridge - X11 tray to StatusNotifierItem
+Documentation=https://github.com/waliori/wine-sni-bridge
+
+[Service]
+ExecStart=/usr/bin/python3 %h/.local/bin/wine-sni-bridge.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

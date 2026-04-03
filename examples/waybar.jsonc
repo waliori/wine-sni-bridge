@@ -1,0 +1,20 @@
+// Waybar configuration for wine-sni-bridge
+// Add these to your waybar config file
+
+// 1. Add "tray" to your modules-right (if not already there)
+// "modules-right": ["tray", ...]
+
+// 2. Tray module - displays the Wine tray icons via SNI protocol
+{
+    "tray": {
+        "spacing": 10,
+        "show-passive-items": true,
+        "icon-size": 16
+    },
+
+    // 3. Taskbar module - add wine-sni-bridge to ignore-list
+    //    so the bridge window doesn't appear as a taskbar entry
+    "wlr/taskbar": {
+        "ignore-list": ["wine-sni-bridge"]
+    }
+}
