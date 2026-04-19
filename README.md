@@ -210,9 +210,27 @@ For NixOS with home-manager:
 imports = [ ./path/to/wine-sni-bridge/nix/module.nix ];
 
 services.wine-sni-bridge.enable = true;
+# Optional: byteOrder = "native" (default) or "network". See below.
 ```
 
 The module automatically creates the systemd service with the correct Python environment.
+
+## Byte order (`--byte-order native|network`)
+
+The DBus StatusNotifierItem spec describes the `IconPixmap` array as "ARGB32
+in network byte order" (big-endian `A,R,G,B` bytes). In practice, every
+known SNI host — waybar's Cairo-based renderer, Quickshell and KDE Plasma
+via Qt's `QImage::Format_ARGB32`, fcitx5 — reads the bytes in **native**
+byte order, which on x86_64 LE means `B,G,R,A`. If the bridge packs the
+pixmap per spec (big-endian), those hosts render color-swapped (pink/magenta
+artefacts on any icon with red or blue channels).
+
+**Default: `--byte-order native`.** This matches what every tested host
+actually wants and makes icons render correctly out of the box.
+
+Pass `--byte-order network` only if you run a host that truly follows the
+spec literally and you see color-swapped icons with the default. If you
+find such a host, please open an issue so it can be documented here.
 
 ## Troubleshooting
 
@@ -227,6 +245,9 @@ The module automatically creates the systemd service with the correct Python env
 
 **White/blank icon on second minimize:**
 - This is usually resolved by icon caching. If persistent, restart the bridge: `systemctl --user restart wine-sni-bridge`
+
+**Icons render with wrong colors (pink/magenta where red should be):**
+- Byte-order mismatch with your SNI host. Try `--byte-order network` (the spec-literal big-endian mode). If that fixes it, please open an issue noting your host + version so we can track which consumers need it.
 
 **Black square on first minimize:**
 - Rare. Icon caching prevents this in most cases. If it happens, it resolves after the first dock/undock cycle

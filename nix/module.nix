@@ -3,6 +3,12 @@
 # Usage in your home-manager config:
 #   imports = [ ./path/to/wine-sni-bridge/nix/module.nix ];
 #   services.wine-sni-bridge.enable = true;
+#
+# Options:
+#   services.wine-sni-bridge.enable     — enable the systemd user service
+#   services.wine-sni-bridge.byteOrder  — "native" (default) or "network".
+#     See wine-sni-bridge.py module docstring for why "native" is correct
+#     for every known Qt/Cairo-based SNI host.
 {
   config,
   lib,
@@ -24,6 +30,18 @@ in {
       default = ../wine-sni-bridge.py;
       description = "Path to the wine-sni-bridge.py script";
     };
+
+    byteOrder = lib.mkOption {
+      type = lib.types.enum ["native" "network"];
+      default = "native";
+      description = ''
+        IconPixmap packing byte order. "native" (default) matches the
+        in-memory layout Qt QImage::Format_ARGB32 and Cairo ARGB32 read on
+        little-endian hosts — colors land correctly in every known SNI
+        host. "network" follows the DBus SNI spec literally (big-endian
+        ARGB); use only if a host requires it.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -32,12 +50,12 @@ in {
         Description = "Wine SNI Bridge - X11 tray to StatusNotifierItem";
       };
       Service = {
-        ExecStart = "${bridgePython}/bin/python3 ${cfg.script}";
+        ExecStart = "${bridgePython}/bin/python3 ${cfg.script} --byte-order ${cfg.byteOrder}";
         Restart = "on-failure";
         RestartSec = 5;
       };
       Install = {
-        WantedBy = [ "default.target" ];
+        WantedBy = ["default.target"];
       };
     };
   };

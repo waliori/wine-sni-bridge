@@ -2,8 +2,20 @@
 """
 Wine SNI Bridge - X11 System Tray to StatusNotifierItem bridge for Wayland.
 Replaces xembedsniproxy without creating focus-stealing unmanaged X11 windows.
+
+Byte order note
+---------------
+The DBus StatusNotifierItem spec describes IconPixmap as "ARGB32 in network
+byte order" (big-endian A,R,G,B bytes). In practice, every known SNI host
+(waybar, Quickshell, KDE Plasma, fcitx5) constructs images via Qt's
+QImage::Format_ARGB32 or Cairo's ARGB32 directly from the DBus byte array,
+and those formats read memory in native byte order — which on x86_64 LE is
+B,G,R,A. So native-endian packing is what hosts actually render correctly.
+Use --byte-order=network only if you encounter a host that truly reads the
+spec literally and shows color-swapped icons with the default.
 """
 
+import argparse
 import os
 import sys
 import struct
@@ -123,7 +135,10 @@ class SNIItem(dbus.service.Object):
 
 
 class WineSNIBridge:
-    def __init__(self):
+    def __init__(self, byte_order="native"):
+        # struct pack format: "<I" = little-endian (native on x86_64),
+        # ">I" = big-endian (DBus SNI spec literal).
+        self._pack_fmt = "<I" if byte_order == "native" else ">I"
         self._display = display.Display()
         self._display.set_error_handler(lambda *a: None)
         self._screen = self._display.screen()
@@ -425,7 +440,7 @@ class WineSNIBridge:
             if w * h > best_size and w <= 256:
                 best_size = w * h
                 best = (w, h, b"".join(
-                    struct.pack(">I", int(p) & 0xFFFFFFFF) for p in pixels))
+                    struct.pack(self._pack_fmt, int(p) & 0xFFFFFFFF) for p in pixels))
         if best:
             w, h, argb = best
             return [dbus.Struct((dbus.Int32(w), dbus.Int32(h),
@@ -442,7 +457,7 @@ class WineSNIBridge:
                 a = raw[i+3] if depth == 32 else 255
                 if r + g + b < 30:
                     a = 0
-                pixels.append(struct.pack(">I", (a << 24) | (r << 16) | (g << 8) | b))
+                pixels.append(struct.pack(self._pack_fmt, (a << 24) | (r << 16) | (g << 8) | b))
             argb = b"".join(pixels)
             if argb and w > 0 and h > 0:
                 cropped = self._crop_argb(argb, w, h)
@@ -577,5 +592,24 @@ class WineSNIBridge:
         return 0
 
 
+def main():
+    parser = argparse.ArgumentParser(
+        description="Wine SNI Bridge - X11 tray to StatusNotifierItem for Wayland")
+    parser.add_argument(
+        "--byte-order",
+        choices=["native", "network"],
+        default="native",
+        help=(
+            "IconPixmap packing byte order. 'native' (default) matches what "
+            "Qt QImage::Format_ARGB32 and Cairo ARGB32 read on little-endian "
+            "hosts — the colors render correctly in every known SNI host. "
+            "'network' follows the DBus SNI spec literally (big-endian ARGB); "
+            "use only if a host requires it."
+        ),
+    )
+    args = parser.parse_args()
+    sys.exit(WineSNIBridge(byte_order=args.byte_order).run())
+
+
 if __name__ == "__main__":
-    sys.exit(WineSNIBridge().run())
+    main()

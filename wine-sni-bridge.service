@@ -3,7 +3,7 @@ Description=Wine SNI Bridge - X11 tray to StatusNotifierItem
 Documentation=https://github.com/waliori/wine-sni-bridge
 
 [Service]
-ExecStart=/usr/bin/python3 %h/.local/bin/wine-sni-bridge.py
+ExecStart=/usr/bin/python3 %h/.local/bin/wine-sni-bridge.py --byte-order native
 Restart=on-failure
 RestartSec=5
 
