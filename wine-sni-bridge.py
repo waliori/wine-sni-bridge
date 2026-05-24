@@ -27,6 +27,7 @@ import dbus.service
 import dbus.mainloop.glib
 from gi.repository import GLib
 from Xlib import X, display, Xatom, protocol, error
+from Xlib.error import ConnectionClosedError
 
 SNI_WATCHER_BUS = "org.kde.StatusNotifierWatcher"
 SNI_WATCHER_PATH = "/StatusNotifierWatcher"
@@ -139,6 +140,7 @@ class WineSNIBridge:
         # struct pack format: "<I" = little-endian (native on x86_64),
         # ">I" = big-endian (DBus SNI spec literal).
         self._pack_fmt = "<I" if byte_order == "native" else ">I"
+        self._dead = False
         self._display = display.Display()
         self._display.set_error_handler(lambda *a: None)
         self._screen = self._display.screen()
@@ -161,6 +163,21 @@ class WineSNIBridge:
                       "_XEMBED", "_XEMBED_INFO", "_NET_WM_ICON",
                       "WM_NAME", "_NET_WM_NAME", "UTF8_STRING"]:
             self._atoms[name] = self._display.intern_atom(name)
+
+    def _fatal(self, reason):
+        # The X11 connection is unrecoverable from inside the same Display
+        # object — pending_events() / queued errors keep allocating inside
+        # python-xlib forever. Bail out and let systemd Restart= bring us
+        # back with a fresh display.
+        if self._dead:
+            return False
+        self._dead = True
+        log(f"X11 connection lost ({reason}); exiting for systemd restart")
+        if self._loop is not None:
+            self._loop.quit()
+        else:
+            sys.exit(1)
+        return False
 
     def _init_dbus(self):
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -346,19 +363,26 @@ class WineSNIBridge:
         # Remove slot entirely so a fresh one is created next time
         self._slots[slot_idx] = None
 
-        # Resize tray window
+        # Resize tray window. Wrapped because a dead X server raises here
+        # straight into the GLib idle callback, which is what flooded the
+        # journal and leaked python-xlib internal queues for days.
         n = len(self._active_icons)
-        self._tray_window.configure(width=max(1, n * 32) if n else 1, height=32)
-        for i, (xid, si) in enumerate(self._active_icons.items()):
-            try:
-                self._slots[si]["window"].configure(x=i * 32, y=0)
-            except Exception:
-                pass
-        self._display.flush()
+        try:
+            self._tray_window.configure(width=max(1, n * 32) if n else 1, height=32)
+            for i, (xid, si) in enumerate(self._active_icons.items()):
+                try:
+                    self._slots[si]["window"].configure(x=i * 32, y=0)
+                except Exception:
+                    pass
+            self._display.flush()
+        except (ConnectionClosedError, IOError, OSError) as e:
+            return self._fatal(f"_undock_icon: {e!r}")
+        except Exception:
+            pass
         log(f"Undocked icon {icon_xid} ({n} remaining)")
 
     def _extract_icon(self, icon_xid):
-        if icon_xid not in self._active_icons:
+        if self._dead or icon_xid not in self._active_icons:
             return False
 
         slot = self._slots[self._active_icons[icon_xid]]
@@ -409,6 +433,8 @@ class WineSNIBridge:
                 finally:
                     gc.free()
                     pix.free()
+        except (ConnectionClosedError, IOError, OSError) as e:
+            return self._fatal(f"_extract_icon: {e!r}")
         except Exception as e:
             log(f"Icon error {icon_xid}, undocking: {e}")
             GLib.idle_add(self._undock_icon, icon_xid)
@@ -499,7 +525,7 @@ class WineSNIBridge:
         return bytes(out)
 
     def send_click(self, icon_xid, button):
-        if icon_xid not in self._active_icons:
+        if self._dead or icon_xid not in self._active_icons:
             return
         slot = self._slots[self._active_icons[icon_xid]]
         icon_win = slot["window"]
@@ -514,11 +540,15 @@ class WineSNIBridge:
                     child=X.NONE, root_x=0, root_y=0, event_x=cx, event_y=cy,
                     state=state, detail=button, same_screen=True), event_mask=mask)
             self._display.flush()
+        except (ConnectionClosedError, IOError, OSError) as e:
+            self._fatal(f"send_click: {e!r}")
         except Exception as e:
             log(f"Click error {icon_xid}, undocking stale icon: {e}")
             GLib.idle_add(self._undock_icon, icon_xid)
 
     def _process_x11(self):
+        if self._dead:
+            return False
         try:
             while self._display.pending_events():
                 ev = self._display.next_event()
@@ -541,6 +571,8 @@ class WineSNIBridge:
                     xid = getattr(ev, 'window', None)
                     if xid and xid.id in self._active_icons:
                         GLib.timeout_add(100, self._extract_icon, xid.id)
+        except (ConnectionClosedError, IOError, OSError) as e:
+            return self._fatal(f"_process_x11: {e!r}")
         except Exception:
             pass
         return True
@@ -587,7 +619,13 @@ class WineSNIBridge:
 
         for xid in list(self._active_icons.keys()):
             self._undock_icon(xid)
-        self._display.close()
+        try:
+            self._display.close()
+        except Exception:
+            pass
+        if self._dead:
+            log("Stopped (X11 dead — exiting nonzero so systemd restarts).")
+            return 1
         log("Stopped.")
         return 0
 

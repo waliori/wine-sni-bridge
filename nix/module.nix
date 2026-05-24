@@ -53,6 +53,10 @@ in {
         ExecStart = "${bridgePython}/bin/python3 ${cfg.script} --byte-order ${cfg.byteOrder}";
         Restart = "on-failure";
         RestartSec = 5;
+        # Belt-and-suspenders: the bridge itself fails fast on dead X11,
+        # but if a different leak ever creeps in, cap it instead of
+        # letting it eat gigabytes of RAM unattended.
+        MemoryMax = "256M";
       };
       Install = {
         WantedBy = ["default.target"];
