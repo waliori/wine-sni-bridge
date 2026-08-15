@@ -393,19 +393,9 @@ class WineSNIBridge:
         sni = slot["sni"]
 
         try:
-            # Try _NET_WM_ICON first
-            icon_prop = icon_win.get_full_property(
-                self._atoms["_NET_WM_ICON"], Xatom.CARDINAL)
-            if icon_prop and icon_prop.value is not None and len(icon_prop.value) >= 3:
-                icons = self._parse_net_wm_icon(icon_prop.value)
-                if icons:
-                    sni.update_icon(icons)
-                    self._icon_cache[slot.get("icon_key", "unknown")] = icons
-                    slot["icon_ready"] = True
-                    log(f"Icon {icon_xid}: via _NET_WM_ICON")
-                    return False
-
-            # CopyArea method
+            # Prefer the rendered window surface (CopyArea): that is what a real
+            # X11 tray displays. Wine's _NET_WM_ICON is often just a grey
+            # placeholder, so it must not take priority over the actual pixels.
             self._display.sync()
             geom = icon_win.get_geometry()
             w, h = geom.width, geom.height
@@ -427,12 +417,24 @@ class WineSNIBridge:
                                 sni.update_icon(icon_data)
                                 self._icon_cache[slot.get("icon_key", "unknown")] = icon_data
                                 slot["icon_ready"] = True
-                                log(f"Icon {icon_xid}: extracted ({w}x{h}, {colored}px)")
+                                log(f"Icon {icon_xid}: extracted from surface ({w}x{h}, {colored}px)")
                                 return False
-                        return True  # retry - not drawn yet
                 finally:
                     gc.free()
                     pix.free()
+
+            # Surface not drawn yet: use _NET_WM_ICON as a stopgap so something
+            # shows, but keep retrying so the real surface icon can take over.
+            icon_prop = icon_win.get_full_property(
+                self._atoms["_NET_WM_ICON"], Xatom.CARDINAL)
+            if icon_prop and icon_prop.value is not None and len(icon_prop.value) >= 3:
+                icons = self._parse_net_wm_icon(icon_prop.value)
+                if icons:
+                    sni.update_icon(icons)
+                    self._icon_cache[slot.get("icon_key", "unknown")] = icons
+                    log(f"Icon {icon_xid}: _NET_WM_ICON stopgap (surface not drawn yet)")
+
+            return True  # retry until the surface is drawn
         except (ConnectionClosedError, IOError, OSError) as e:
             return self._fatal(f"_extract_icon: {e!r}")
         except Exception as e:
